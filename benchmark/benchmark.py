@@ -1,3 +1,5 @@
+from typing import Annotated, List, Optional
+
 import typer
 import ollama
 
@@ -16,16 +18,20 @@ def get_model_response(model: str, message: str):
     return response["message"]["content"]
 
 
-def main(model: str, message: str):
-    try:
-        ollama.show(model)
-    except ollama.ResponseError:
-        print(f"Model {model} not found. Pulling...")
-        ollama.pull(model)
+def main(
+    models: Annotated[List[str], typer.Option("-m", "--model")],
+    # `test_paths` file will be a standard codeql csv response with a `label` column (1 - filtered, 0 - not filtered)
+    test: Annotated[str, typer.Option("-t", "--test")],
+    output_file: Annotated[str, typer.Option("-o", "--output-file")] = None,
+):
+    for model in models:
+        try:
+            ollama.show(model)
+        except ollama.ResponseError:
+            print(f"Model {model} not found. Pulling...")
+            ollama.pull(model)
 
-    # def main(models: list[str], tests_path: str):
-    # `test` file will be a codeql csv response with a `label` column (1 - filtered, 0 - not filtered)
-    print(get_model_response(model, message))
+        print(get_model_response(model, "What is the Python dictionary .keys() method for?"))
 
 
 def run_tests_on_model(model: str, tests_path: str):
