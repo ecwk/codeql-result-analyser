@@ -14,7 +14,11 @@ def stream_model_response(model: str, message: str, handler: callable):
 
 
 def get_model_response(model: str, message: str) -> str:
-    response = ollama.chat(model=model, messages=[{"role": "user", "content": message}])
+    response = ollama.chat(
+        model=model,
+        messages=[{"role": "user", "content": message}],
+        options={"temperature": 0.0},
+    )
     return response["message"]["content"]
 
 
