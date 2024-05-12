@@ -31,6 +31,8 @@ You will be given a CodeQL query, CPP snippet, the source file containing the sn
 
 The CPP snippet was retrieved using the CodeQL query, a language used for static analysis. You don't have to understand the syntax of the language, but you should be able to understand the structure of the code.
 
+Each line in the CPP snippet and source file will be prepended with the line number "L<i>: " where i is the line number. The line number in the snippet will correspond to the line number in the source file.
+
 # INSTRUCTION
 Given the filter, determine if the source file matches the filter (1) or not (0).
 
@@ -112,7 +114,9 @@ def main(
 
             if output_file:
                 with open(output_file, "a") as f:
-                    f.write(f"File: {row['file_path']}\nLabel: {label}\nPrompt:\n{prompt}\n")
+                    f.write(
+                        f"File: {row['file_path']}\nLabel: {label}\nPrompt:\n{prompt}\n"
+                    )
 
             print(f"\n\nGetting response for {row['file_path']} from {model}...")
 
