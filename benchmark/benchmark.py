@@ -114,7 +114,7 @@ def main(
                 with open(output_file, "a") as f:
                     f.write(f"File: {row['file_path']}\nLabel: {label}\nPrompt:\n{prompt}\n")
 
-            print(f"\n\nGetting response for {row["file_path"]} from {model}...")
+            print(f"\n\nGetting response for {row['file_path']} from {model}...")
 
             response = ""
             stream = stream_model_response(model, prompt)
