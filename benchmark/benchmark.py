@@ -48,7 +48,9 @@ ONLY RETURN JSON. DO NOT PRINT ANYTHING ELSE.
 ```
 
 ## Source File
+```cpp
 {source_file}
+```
 
 ## Filter
 {filter_str}"""
@@ -96,7 +98,7 @@ def main(
 
             prompt = get_prompt(codeql_query, snippet, source_file, row["filter"])
 
-            with open(f"${row['file_path']}.prompt.txt", "w") as f:
+            with open(f"{row['file_path']}.prompt.txt", "w") as f:
                 f.write(prompt)
 
             print("Getting response...")
@@ -104,9 +106,10 @@ def main(
 
             print("---RESPONSE---\n", response)
 
-
-def run_tests_on_model(model: str, tests_path: str):
-    pass
+            # append
+            if output_file:
+                with open(output_file, "a") as f:
+                    f.write(f"{row['file_path']},{response},{label}\n")
 
 
 if __name__ == "__main__":
