@@ -1,0 +1,493 @@
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path              /src/libANGLE/renderer/vulkan/BufferVk.cpp
+start_line                                                    507
+start_col                                                      49
+end_line                                                      507
+end_col                                                        66
+Name: 0, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   1136
+start_col                                                      60
+end_line                                                     1136
+end_col                                                        77
+Name: 1, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   1179
+start_col                                                      51
+end_line                                                     1179
+end_col                                                        68
+Name: 2, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   1203
+start_col                                                      51
+end_line                                                     1203
+end_col                                                        68
+Name: 3, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   6299
+start_col                                                      51
+end_line                                                     6299
+end_col                                                        68
+Name: 4, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   1757
+start_col                                                      56
+end_line                                                     1757
+end_col                                                        73
+Name: 5, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   1781
+start_col                                                      56
+end_line                                                     1781
+end_col                                                        73
+Name: 6, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   1803
+start_col                                                      56
+end_line                                                     1803
+end_col                                                        73
+Name: 7, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   1496
+start_col                                                      51
+end_line                                                     1496
+end_col                                                        68
+Name: 8, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   5198
+start_col                                                      51
+end_line                                                     5198
+end_col                                                        68
+Name: 9, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                    924
+start_col                                                      56
+end_line                                                      924
+end_col                                                        73
+Name: 10, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   4490
+start_col                                                      56
+end_line                                                     4490
+end_col                                                        73
+Name: 11, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   2771
+start_col                                                      39
+end_line                                                     2771
+end_col                                                        56
+Name: 12, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                   2717
+start_col                                                      39
+end_line                                                     2717
+end_col                                                        56
+Name: 13, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/ContextVk.cpp
+start_line                                                    323
+start_col                                                      27
+end_line                                                      323
+end_col                                                        44
+Name: 14, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path       /src/libANGLE/renderer/vulkan/ProgramExecutabl...
+start_line                                                   1378
+start_col                                                      52
+end_line                                                     1378
+end_col                                                        69
+Name: 15, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path       /src/libANGLE/renderer/vulkan/ProgramExecutabl...
+start_line                                                   1297
+start_col                                                      52
+end_line                                                     1297
+end_col                                                        69
+Name: 16, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path           /src/libANGLE/renderer/vulkan/SemaphoreVk.cpp
+start_line                                                    174
+start_col                                                      56
+end_line                                                      174
+end_col                                                        73
+Name: 17, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path           /src/libANGLE/renderer/vulkan/SemaphoreVk.cpp
+start_line                                                    119
+start_col                                                      56
+end_line                                                      119
+end_col                                                        73
+Name: 18, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/TextureVk.cpp
+start_line                                                    489
+start_col                                                      58
+end_line                                                      489
+end_col                                                        75
+Name: 19, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path             /src/libANGLE/renderer/vulkan/TextureVk.cpp
+start_line                                                   2885
+start_col                                                      48
+end_line                                                     2885
+end_col                                                        65
+Name: 20, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path       /src/libANGLE/renderer/vulkan/TransformFeedbac...
+start_line                                                     69
+start_col                                                      54
+end_line                                                       69
+end_col                                                        71
+Name: 21, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path         /src/libANGLE/renderer/vulkan/VertexArrayVk.cpp
+start_line                                                    699
+start_col                                                      67
+end_line                                                      699
+end_col                                                        84
+Name: 22, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path         /src/libANGLE/renderer/vulkan/VertexArrayVk.cpp
+start_line                                                    411
+start_col                                                      53
+end_line                                                      411
+end_col                                                        70
+Name: 23, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path         /src/libANGLE/renderer/vulkan/VertexArrayVk.cpp
+start_line                                                    224
+start_col                                                      49
+end_line                                                      224
+end_col                                                        66
+Name: 24, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path         /src/libANGLE/renderer/vulkan/VertexArrayVk.cpp
+start_line                                                    203
+start_col                                                      47
+end_line                                                      203
+end_col                                                        64
+Name: 25, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path         /src/libANGLE/renderer/vulkan/VertexArrayVk.cpp
+start_line                                                    493
+start_col                                                      36
+end_line                                                      493
+end_col                                                        53
+Name: 26, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path            /src/libANGLE/renderer/vulkan/vk_helpers.cpp
+start_line                                                   3302
+start_col                                                      57
+end_line                                                     3302
+end_col                                                        74
+Name: 27, dtype: object
+
+::Response::
+
+====================
+---CODELLAMA:70B---
+====================
+::Result::
+query_name                               BufferVk::mBuffer Access
+unknown                                                       NaN
+problem_type                                              warning
+problem         BufferVk::mBuffer is accessed through a functi...
+file_path            /src/libANGLE/renderer/vulkan/vk_helpers.cpp
+start_line                                                   7287
+start_col                                                      51
+end_line                                                     7287
+end_col                                                        68
+Name: 28, dtype: object
+
+::Response::
+
