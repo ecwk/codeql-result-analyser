@@ -1,0 +1,1584 @@
+---PHI3---
+File: TransformFeedbackVk.a.cpp
+Label: 0
+Prompt:
+# CONTEXT
+You will be given a CodeQL query, CPP snippet, the source file containing the snippet, and a filter.
+
+The CPP snippet was retrieved using the CodeQL query, a language used for static analysis. You don't have to understand the syntax of the language, but you should be able to understand the structure of the code.
+
+# INSTRUCTION
+Given the filter, determine if the source file matches the filter (1) or not (0).
+
+Strictly follow the following output format when giving your answer.
+
+# OUTPUT FORMAT
+Return a JSON of the following format.
+{
+    "explanation": <str>,
+    "is_filtered": <1 or 0>
+}
+
+ONLY RETURN JSON. DO NOT PRINT ANYTHING ELSE.
+
+# INPUT
+
+## CodeQL Query
+import cpp
+
+class BufferVkBufferAccessCall extends FunctionCall {
+  BufferVkBufferAccessCall() {
+    this.getType().getName() = "BufferHelper &" and
+    this.getTarget().getDeclaringType().getQualifiedName() = "rx::BufferVk"
+  }
+}
+
+from AssignExpr e, BufferVkBufferAccessCall fc, FieldAccess fa
+where
+  fc.getEnclosingStmt().(ExprStmt).getExpr() = e and
+  (
+    e.getRValue().(AddressOfExpr).getOperand() = fc
+    or
+    e.getRValue() = fc
+  ) and
+  fa.getEnclosingStmt().(ExprStmt).getExpr() = e
+select fc,
+  "BufferVk::mBuffer is accessed through a function call to $@. The result is assigned to $@::$@.",
+  fc.getTarget(), fc.getTarget().getName(), fa.getTarget().getDeclaringType(),
+  fa.getTarget().getDeclaringType().getName(), fa.getTarget(), fa.getTarget().getName()
+
+## CPP Snippet
+```cpp
+L59:             mBufferHelpers[bufferIndex] = &bufferVk->getBufferAndOffset(&bufferOffset);
+```
+
+## Source File
+```cpp
+L1: //
+L2: // Copyright 2016 The ANGLE Project Authors. All rights reserved.
+L3: // Use of this source code is governed by a BSD-style license that can be
+L4: // found in the LICENSE file.
+L5: //
+L6: // TransformFeedbackVk.cpp:
+L7: //    Implements the class methods for TransformFeedbackVk.
+L8: //
+L9: #include "libANGLE/renderer/vulkan/TransformFeedbackVk.h"
+L10: #include "libANGLE/Context.h"
+L11: #include "libANGLE/Query.h"
+L12: #include "libANGLE/renderer/glslang_wrapper_utils.h"
+L13: #include "libANGLE/renderer/vulkan/BufferVk.h"
+L14: #include "libANGLE/renderer/vulkan/ContextVk.h"
+L15: #include "libANGLE/renderer/vulkan/FramebufferVk.h"
+L16: #include "libANGLE/renderer/vulkan/ProgramVk.h"
+L17: #include "libANGLE/renderer/vulkan/QueryVk.h"
+L18: #include "common/debug.h"
+L19: namespace rx
+L20: {
+L21: TransformFeedbackVk::TransformFeedbackVk(const gl::TransformFeedbackState &state)
+L22:     : TransformFeedbackImpl(state),
+L23:       mRebindTransformFeedbackBuffer(false),
+L24:       mBufferHelpers{},
+L25:       mBufferHandles{},
+L26:       mBufferOffsets{},
+L27:       mBufferSizes{},
+L28:       mAlignedBufferOffsets{},
+L29:       mCounterBufferHandles{}
+L30: {}
+L31: TransformFeedbackVk::~TransformFeedbackVk() {}
+L32: void TransformFeedbackVk::onDestroy(const gl::Context *context)
+L33: {
+L34:     ASSERT(std::all_of(mCounterBufferHelpers.begin(), mCounterBufferHelpers.end(),
+L35:                        [](vk::BufferHelper &counterBuffer) { return !counterBuffer.valid(); }));
+L36: }
+L37: void TransformFeedbackVk::releaseCounterBuffers(RendererVk *renderer)
+L38: {
+L39:     for (vk::BufferHelper &bufferHelper : mCounterBufferHelpers)
+L40:     {
+L41:         bufferHelper.release(renderer);
+L42:     }
+L43:     for (VkBuffer &buffer : mCounterBufferHandles)
+L44:     {
+L45:         buffer = VK_NULL_HANDLE;
+L46:     }
+L47: }
+L48: void TransformFeedbackVk::initializeXFBBuffersDesc(ContextVk *contextVk, size_t xfbBufferCount)
+L49: {
+L50:     mXFBBuffersDesc.reset();
+L51:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L52:     {
+L53:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(bufferIndex);
+L54:         ASSERT(binding.get());
+L55:         BufferVk *bufferVk = vk::GetImpl(binding.get());
+L56:         if (bufferVk->isBufferValid())
+L57:         {
+L58:             VkDeviceSize bufferOffset   = 0;
+L59:             mBufferHelpers[bufferIndex] = &bufferVk->getBufferAndOffset(&bufferOffset);
+L60:             mBufferOffsets[bufferIndex] = binding.getOffset() + bufferOffset;
+L61:             mBufferSizes[bufferIndex]   = gl::GetBoundBufferAvailableSize(binding);
+L62:         }
+L63:         else
+L64:         {
+L65:             // This can happen in error conditions.
+L66:             vk::BufferHelper &nullBuffer = contextVk->getEmptyBuffer();
+L67:             mBufferHelpers[bufferIndex]  = &nullBuffer;
+L68:             mBufferOffsets[bufferIndex]  = 0;
+L69:             mBufferSizes[bufferIndex]    = nullBuffer.getSize();
+L70:         }
+L71:         mXFBBuffersDesc.updateTransformFeedbackBuffer(
+L72:             bufferIndex, mBufferHelpers[bufferIndex]->getBufferSerial(),
+L73:             mBufferOffsets[bufferIndex]);
+L74:     }
+L75: }
+L76: angle::Result TransformFeedbackVk::begin(const gl::Context *context,
+L77:                                          gl::PrimitiveMode primitiveMode)
+L78: {
+L79:     ContextVk *contextVk = vk::GetImpl(context);
+L80:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L81:     ASSERT(executable);
+L82:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L83:     initializeXFBBuffersDesc(contextVk, xfbBufferCount);
+L84:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L85:     {
+L86:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(bufferIndex);
+L87:         mBufferHandles[bufferIndex] = mBufferHelpers[bufferIndex]->getBuffer().getHandle();
+L88:         if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+L89:         {
+L90:             if (mCounterBufferHandles[bufferIndex] == VK_NULL_HANDLE)
+L91:             {
+L92:                 VkBufferCreateInfo createInfo = {};
+L93:                 createInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+L94:                 createInfo.size               = 16;
+L95:                 createInfo.usage       = VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
+L96:                 createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+L97:                 vk::BufferHelper &bufferHelper = mCounterBufferHelpers[bufferIndex];
+L98:                 ANGLE_TRY(
+L99:                     bufferHelper.init(contextVk, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
+L100:                 mCounterBufferHandles[bufferIndex] = bufferHelper.getBuffer().getHandle();
+L101:             }
+L102:         }
+L103:         else
+L104:         {
+L105:             ASSERT(contextVk->getFeatures().emulateTransformFeedback.enabled);
+L106:             RendererVk *rendererVk = contextVk->getRenderer();
+L107:             const VkDeviceSize offsetAlignment =
+L108:                 rendererVk->getPhysicalDeviceProperties().limits.minStorageBufferOffsetAlignment;
+L109:             // Make sure there's no possible under/overflow with binding size.
+L110:             static_assert(sizeof(VkDeviceSize) >= sizeof(binding.getSize()),
+L111:                           "VkDeviceSize too small");
+L112:             // Set the offset as close as possible to the requested offset while remaining aligned.
+L113:             mAlignedBufferOffsets[bufferIndex] =
+L114:                 (mBufferOffsets[bufferIndex] / offsetAlignment) * offsetAlignment;
+L115:         }
+L116:     }
+L117:     if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+L118:     {
+L119:         mRebindTransformFeedbackBuffer = true;
+L120:     }
+L121:     return contextVk->onBeginTransformFeedback(xfbBufferCount, mBufferHelpers,
+L122:                                                mCounterBufferHelpers);
+L123: }
+L124: angle::Result TransformFeedbackVk::end(const gl::Context *context)
+L125: {
+L126:     ContextVk *contextVk = vk::GetImpl(context);
+L127:     // If there's an active transform feedback query, accumulate the primitives drawn.
+L128:     const gl::State &glState = context->getState();
+L129:     gl::Query *transformFeedbackQuery =
+L130:         glState.getActiveQuery(gl::QueryType::TransformFeedbackPrimitivesWritten);
+L131:     if (transformFeedbackQuery && contextVk->getFeatures().emulateTransformFeedback.enabled)
+L132:     {
+L133:         vk::GetImpl(transformFeedbackQuery)->onTransformFeedbackEnd(mState.getPrimitivesDrawn());
+L134:     }
+L135:     contextVk->onEndTransformFeedback();
+L136:     releaseCounterBuffers(contextVk->getRenderer());
+L137:     return angle::Result::Continue;
+L138: }
+L139: angle::Result TransformFeedbackVk::pause(const gl::Context *context)
+L140: {
+L141:     ContextVk *contextVk = vk::GetImpl(context);
+L142:     if (contextVk->getFeatures().emulateTransformFeedback.enabled)
+L143:     {
+L144:         // Bind the empty buffer until we resume.
+L145:         const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L146:         ASSERT(executable);
+L147:         size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L148:         const vk::BufferHelper &emptyBuffer = contextVk->getEmptyBuffer();
+L149:         for (size_t xfbIndex = 0; xfbIndex < xfbBufferCount; ++xfbIndex)
+L150:         {
+L151:             mXFBBuffersDesc.updateTransformFeedbackBuffer(xfbIndex, emptyBuffer.getBufferSerial(),
+L152:                                                           0);
+L153:         }
+L154:     }
+L155:     return contextVk->onPauseTransformFeedback();
+L156: }
+L157: angle::Result TransformFeedbackVk::resume(const gl::Context *context)
+L158: {
+L159:     ContextVk *contextVk                    = vk::GetImpl(context);
+L160:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L161:     ASSERT(executable);
+L162:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L163:     if (contextVk->getFeatures().emulateTransformFeedback.enabled)
+L164:     {
+L165:         initializeXFBBuffersDesc(contextVk, xfbBufferCount);
+L166:     }
+L167:     return contextVk->onBeginTransformFeedback(xfbBufferCount, mBufferHelpers,
+L168:                                                mCounterBufferHelpers);
+L169: }
+L170: angle::Result TransformFeedbackVk::bindIndexedBuffer(
+L171:     const gl::Context *context,
+L172:     size_t index,
+L173:     const gl::OffsetBindingPointer<gl::Buffer> &binding)
+L174: {
+L175:     ContextVk *contextVk = vk::GetImpl(context);
+L176:     // Make sure the transform feedback buffers are bound to the program descriptor sets.
+L177:     contextVk->invalidateCurrentTransformFeedbackBuffers();
+L178:     return angle::Result::Continue;
+L179: }
+L180: void TransformFeedbackVk::updateDescriptorSetLayout(
+L181:     ContextVk *contextVk,
+L182:     const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L183:     size_t xfbBufferCount,
+L184:     vk::DescriptorSetLayoutDesc *descSetLayoutOut) const
+L185: {
+L186:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L187:     {
+L188:         return;
+L189:     }
+L190:     for (uint32_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L191:     {
+L192:         const std::string bufferName = GetXfbBufferName(bufferIndex);
+L193:         const ShaderInterfaceVariableInfo &info =
+L194:             variableInfoMap.get(gl::ShaderType::Vertex, bufferName);
+L195:         descSetLayoutOut->update(info.binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+L196:                                  VK_SHADER_STAGE_VERTEX_BIT, nullptr);
+L197:     }
+L198: }
+L199: void TransformFeedbackVk::initDescriptorSet(ContextVk *contextVk,
+L200:                                             const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L201:                                             size_t xfbBufferCount,
+L202:                                             VkDescriptorSet descSet) const
+L203: {
+L204:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L205:     {
+L206:         return;
+L207:     }
+L208:     VkDescriptorBufferInfo *descriptorBufferInfo =
+L209:         contextVk->allocDescriptorBufferInfos(xfbBufferCount);
+L210:     vk::BufferHelper *emptyBuffer = &contextVk->getEmptyBuffer();
+L211:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L212:     {
+L213:         VkDescriptorBufferInfo &bufferInfo = descriptorBufferInfo[bufferIndex];
+L214:         bufferInfo.buffer                  = emptyBuffer->getBuffer().getHandle();
+L215:         bufferInfo.offset                  = 0;
+L216:         bufferInfo.range                   = VK_WHOLE_SIZE;
+L217:     }
+L218:     writeDescriptorSet(contextVk, variableInfoMap, xfbBufferCount, descriptorBufferInfo, descSet);
+L219: }
+L220: void TransformFeedbackVk::updateDescriptorSet(ContextVk *contextVk,
+L221:                                               const gl::ProgramState &programState,
+L222:                                               const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L223:                                               VkDescriptorSet descSet) const
+L224: {
+L225:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L226:     {
+L227:         return;
+L228:     }
+L229:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L230:     ASSERT(executable);
+L231:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L232:     ASSERT(xfbBufferCount > 0);
+L233:     ASSERT(programState.getTransformFeedbackBufferMode() != GL_INTERLEAVED_ATTRIBS ||
+L234:            xfbBufferCount == 1);
+L235:     VkDescriptorBufferInfo *descriptorBufferInfo =
+L236:         contextVk->allocDescriptorBufferInfos(xfbBufferCount);
+L237:     // Update buffer descriptor binding info for output buffers
+L238:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L239:     {
+L240:         VkDescriptorBufferInfo &bufferInfo = descriptorBufferInfo[bufferIndex];
+L241:         bufferInfo.buffer = mBufferHandles[bufferIndex];
+L242:         bufferInfo.offset = mAlignedBufferOffsets[bufferIndex];
+L243:         bufferInfo.range  = mBufferSizes[bufferIndex] +
+L244:                            (mBufferOffsets[bufferIndex] - mAlignedBufferOffsets[bufferIndex]);
+L245:         ASSERT(bufferInfo.range != 0);
+L246:     }
+L247:     writeDescriptorSet(contextVk, variableInfoMap, xfbBufferCount, descriptorBufferInfo, descSet);
+L248: }
+L249: void TransformFeedbackVk::getBufferOffsets(ContextVk *contextVk,
+L250:                                            GLint drawCallFirstVertex,
+L251:                                            int32_t *offsetsOut,
+L252:                                            size_t offsetsSize) const
+L253: {
+L254:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L255:     {
+L256:         return;
+L257:     }
+L258:     GLsizeiptr verticesDrawn                = mState.getVerticesDrawn();
+L259:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L260:     ASSERT(executable);
+L261:     const std::vector<GLsizei> &bufferStrides = executable->getTransformFeedbackStrides();
+L262:     size_t xfbBufferCount                     = executable->getTransformFeedbackBufferCount();
+L263:     ASSERT(xfbBufferCount > 0);
+L264:     // The caller should make sure the offsets array has enough space.  The maximum possible
+L265:     // number of outputs is gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS.
+L266:     ASSERT(offsetsSize >= xfbBufferCount);
+L267:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L268:     {
+L269:         int64_t offsetFromDescriptor =
+L270:             static_cast<int64_t>(mBufferOffsets[bufferIndex] - mAlignedBufferOffsets[bufferIndex]);
+L271:         int64_t drawCallVertexOffset = static_cast<int64_t>(verticesDrawn) - drawCallFirstVertex;
+L272:         int64_t writeOffset =
+L273:             (offsetFromDescriptor + drawCallVertexOffset * bufferStrides[bufferIndex]) /
+L274:             static_cast<int64_t>(sizeof(uint32_t));
+L275:         offsetsOut[bufferIndex] = static_cast<int32_t>(writeOffset);
+L276:         // Assert on overflow.  For now, support transform feedback up to 2GB.
+L277:         ASSERT(offsetsOut[bufferIndex] == writeOffset);
+L278:     }
+L279: }
+L280: void TransformFeedbackVk::writeDescriptorSet(ContextVk *contextVk,
+L281:                                              const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L282:                                              size_t xfbBufferCount,
+L283:                                              VkDescriptorBufferInfo *bufferInfo,
+L284:                                              VkDescriptorSet descSet) const
+L285: {
+L286:     ASSERT(contextVk->getFeatures().emulateTransformFeedback.enabled);
+L287:     const std::string bufferName = GetXfbBufferName(0);
+L288:     const ShaderInterfaceVariableInfo &info =
+L289:         variableInfoMap.get(gl::ShaderType::Vertex, bufferName);
+L290:     VkWriteDescriptorSet &writeDescriptorInfo = contextVk->allocWriteDescriptorSet();
+L291:     writeDescriptorInfo.sType                 = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+L292:     writeDescriptorInfo.dstSet                = descSet;
+L293:     writeDescriptorInfo.dstBinding            = info.binding;
+L294:     writeDescriptorInfo.dstArrayElement       = 0;
+L295:     writeDescriptorInfo.descriptorCount       = static_cast<uint32_t>(xfbBufferCount);
+L296:     writeDescriptorInfo.descriptorType        = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+L297:     writeDescriptorInfo.pImageInfo            = nullptr;
+L298:     writeDescriptorInfo.pBufferInfo           = bufferInfo;
+L299:     writeDescriptorInfo.pTexelBufferView      = nullptr;
+L300: }
+L301: }  // namespace rx
+```
+
+## Filter
+The class that stores this reference to Vk::Buffer reassigns the Vk:Buffer handle when the Vk:Buffer's internal storage changes
+Response:
+It appears you have provided a snippet of code related to a `TransformFeedbackVk` class, which is part of a larger graphics rendering or compute operation context. The code includes methods for updating descriptor sets and managing buffer offsets in the context of Vulkan's transform feedback mechanism. Let's break down the key parts:
+
+1. **Class Definition**: `TransformFeedbackVk` is likely a class that encapsulates functionality related to handling transform feedback buffers within a graphics application using Vulkan API.
+
+2. **Method 0 (`UpdateDescriptorSets`)**: This method updates the descriptor sets for a given context and buffer index, ensuring that the `emulateTransformFeedback` feature is enabled before proceeding with the update. It allocates buffers, creates an array of descriptors, and writes them to the specified Vulkan descriptor set (`descSet`).
+
+3. **Method 1 (`getBuffer`)**: This method retrieves a reference to a `Vk::Buffer` object associated with a specific buffer name (e.g., "xfb_buffer") within an instance of `TransformFeedbackVk`. It returns the Vulkan handle for that buffer, allowing other parts of the codebase to interact with it directly.
+
+4. **Method 2 (`getXfbBuffer`)**: This method is similar to `getBuffer` but specifically retrieves a reference to an X-buffer (a special type of transform feedback buffer in Vulkan). It returns the Vulkan handle for that specific X-buffer.
+
+5. **Method 3 (`writeDescriptorSet`)**: This method writes descriptor sets with information about storage buffers, including their binding and offset within a larger structure. The `contextVk` parameter represents an instance of `ContextVk`, which likely contains additional contextual data required for the operation (e.g., shader interface info).
+
+6. **Method 4 (`getXfbBufferName`)**: This method returns the name associated with a specific X-buffer, allowing other parts of the code to identify and reference it by its name.
+
+7. **Filtering Mechanism**: The `getBuffer` and `getXfbBuffer` methods provide access to Vulkan buffer handles while ensuring that any changes in internal storage are reflected correctly. This is important for maintaining consistency between the class's representation of buffers and their actual usage within the Vulkan API.
+
+Overall, this code snippet demonstrates how a `TransformFeedbackVk` class can manage transform feedback buffers and descriptor sets in a graphics application using the Vulkan API. The methods provide essential functionality for updating and accessing buffer information while ensuring compatibility with Vulkan's requirements.
+
+File: TransformFeedbackVk.b.cpp
+Label: 1
+Prompt:
+# CONTEXT
+You will be given a CodeQL query, CPP snippet, the source file containing the snippet, and a filter.
+
+The CPP snippet was retrieved using the CodeQL query, a language used for static analysis. You don't have to understand the syntax of the language, but you should be able to understand the structure of the code.
+
+# INSTRUCTION
+Given the filter, determine if the source file matches the filter (1) or not (0).
+
+Strictly follow the following output format when giving your answer.
+
+# OUTPUT FORMAT
+Return a JSON of the following format.
+{
+    "explanation": <str>,
+    "is_filtered": <1 or 0>
+}
+
+ONLY RETURN JSON. DO NOT PRINT ANYTHING ELSE.
+
+# INPUT
+
+## CodeQL Query
+import cpp
+
+class BufferVkBufferAccessCall extends FunctionCall {
+  BufferVkBufferAccessCall() {
+    this.getType().getName() = "BufferHelper &" and
+    this.getTarget().getDeclaringType().getQualifiedName() = "rx::BufferVk"
+  }
+}
+
+from AssignExpr e, BufferVkBufferAccessCall fc, FieldAccess fa
+where
+  fc.getEnclosingStmt().(ExprStmt).getExpr() = e and
+  (
+    e.getRValue().(AddressOfExpr).getOperand() = fc
+    or
+    e.getRValue() = fc
+  ) and
+  fa.getEnclosingStmt().(ExprStmt).getExpr() = e
+select fc,
+  "BufferVk::mBuffer is accessed through a function call to $@. The result is assigned to $@::$@.",
+  fc.getTarget(), fc.getTarget().getName(), fa.getTarget().getDeclaringType(),
+  fa.getTarget().getDeclaringType().getName(), fa.getTarget(), fa.getTarget().getName()
+
+## CPP Snippet
+```cpp
+L66:             mBufferHelpers[bufferIndex] = &bufferVk->getBufferAndOffset(&bufferOffset);
+```
+
+## Source File
+```cpp
+L1: //
+L2: // Copyright 2016 The ANGLE Project Authors. All rights reserved.
+L3: // Use of this source code is governed by a BSD-style license that can be
+L4: // found in the LICENSE file.
+L5: //
+L6: // TransformFeedbackVk.cpp:
+L7: //    Implements the class methods for TransformFeedbackVk.
+L8: //
+L9: #include "libANGLE/renderer/vulkan/TransformFeedbackVk.h"
+L10: #include "libANGLE/Context.h"
+L11: #include "libANGLE/Query.h"
+L12: #include "libANGLE/renderer/glslang_wrapper_utils.h"
+L13: #include "libANGLE/renderer/vulkan/BufferVk.h"
+L14: #include "libANGLE/renderer/vulkan/ContextVk.h"
+L15: #include "libANGLE/renderer/vulkan/FramebufferVk.h"
+L16: #include "libANGLE/renderer/vulkan/ProgramVk.h"
+L17: #include "libANGLE/renderer/vulkan/QueryVk.h"
+L18: #include "common/debug.h"
+L19: namespace rx
+L20: {
+L21: TransformFeedbackVk::TransformFeedbackVk(const gl::TransformFeedbackState &state)
+L22:     : TransformFeedbackImpl(state),
+L23:       mRebindTransformFeedbackBuffer(false),
+L24:       mBufferHelpers{},
+L25:       mBufferHandles{},
+L26:       mBufferOffsets{},
+L27:       mBufferSizes{},
+L28:       mAlignedBufferOffsets{},
+L29:       mCounterBufferHandles{}
+L30: {
+L31:     for (angle::SubjectIndex bufferIndex = 0;
+L32:          bufferIndex < gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS; ++bufferIndex)
+L33:     {
+L34:         mBufferObserverBindings.emplace_back(this, bufferIndex);
+L35:     }
+L36: }
+L37: TransformFeedbackVk::~TransformFeedbackVk() {}
+L38: void TransformFeedbackVk::onDestroy(const gl::Context *context)
+L39: {
+L40:     ContextVk *contextVk   = vk::GetImpl(context);
+L41:     RendererVk *rendererVk = contextVk->getRenderer();
+L42:     releaseCounterBuffers(rendererVk);
+L43: }
+L44: void TransformFeedbackVk::releaseCounterBuffers(RendererVk *renderer)
+L45: {
+L46:     for (vk::BufferHelper &bufferHelper : mCounterBufferHelpers)
+L47:     {
+L48:         bufferHelper.release(renderer);
+L49:     }
+L50:     for (VkBuffer &buffer : mCounterBufferHandles)
+L51:     {
+L52:         buffer = VK_NULL_HANDLE;
+L53:     }
+L54: }
+L55: void TransformFeedbackVk::initializeXFBBuffersDesc(ContextVk *contextVk, size_t xfbBufferCount)
+L56: {
+L57:     mXFBBuffersDesc.reset();
+L58:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L59:     {
+L60:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(bufferIndex);
+L61:         ASSERT(binding.get());
+L62:         BufferVk *bufferVk = vk::GetImpl(binding.get());
+L63:         if (bufferVk->isBufferValid())
+L64:         {
+L65:             VkDeviceSize bufferOffset   = 0;
+L66:             mBufferHelpers[bufferIndex] = &bufferVk->getBufferAndOffset(&bufferOffset);
+L67:             mBufferOffsets[bufferIndex] = binding.getOffset() + bufferOffset;
+L68:             mBufferSizes[bufferIndex]   = gl::GetBoundBufferAvailableSize(binding);
+L69:             mBufferObserverBindings[bufferIndex].bind(bufferVk);
+L70:         }
+L71:         else
+L72:         {
+L73:             // This can happen in error conditions.
+L74:             vk::BufferHelper &nullBuffer = contextVk->getEmptyBuffer();
+L75:             mBufferHelpers[bufferIndex]  = &nullBuffer;
+L76:             mBufferOffsets[bufferIndex]  = 0;
+L77:             mBufferSizes[bufferIndex]    = nullBuffer.getSize();
+L78:             mBufferObserverBindings[bufferIndex].reset();
+L79:         }
+L80:         mXFBBuffersDesc.updateTransformFeedbackBuffer(
+L81:             bufferIndex, mBufferHelpers[bufferIndex]->getBufferSerial(),
+L82:             mBufferOffsets[bufferIndex]);
+L83:     }
+L84: }
+L85: angle::Result TransformFeedbackVk::begin(const gl::Context *context,
+L86:                                          gl::PrimitiveMode primitiveMode)
+L87: {
+L88:     ContextVk *contextVk = vk::GetImpl(context);
+L89:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L90:     ASSERT(executable);
+L91:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L92:     initializeXFBBuffersDesc(contextVk, xfbBufferCount);
+L93:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L94:     {
+L95:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(bufferIndex);
+L96:         mBufferHandles[bufferIndex] = mBufferHelpers[bufferIndex]->getBuffer().getHandle();
+L97:         if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+L98:         {
+L99:             if (mCounterBufferHandles[bufferIndex] == VK_NULL_HANDLE)
+L100:             {
+L101:                 VkBufferCreateInfo createInfo = {};
+L102:                 createInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+L103:                 createInfo.size               = 16;
+L104:                 createInfo.usage       = VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
+L105:                 createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+L106:                 vk::BufferHelper &bufferHelper = mCounterBufferHelpers[bufferIndex];
+L107:                 ANGLE_TRY(
+L108:                     bufferHelper.init(contextVk, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
+L109:                 mCounterBufferHandles[bufferIndex] = bufferHelper.getBuffer().getHandle();
+L110:             }
+L111:         }
+L112:         else
+L113:         {
+L114:             ASSERT(contextVk->getFeatures().emulateTransformFeedback.enabled);
+L115:             RendererVk *rendererVk = contextVk->getRenderer();
+L116:             const VkDeviceSize offsetAlignment =
+L117:                 rendererVk->getPhysicalDeviceProperties().limits.minStorageBufferOffsetAlignment;
+L118:             // Make sure there's no possible under/overflow with binding size.
+L119:             static_assert(sizeof(VkDeviceSize) >= sizeof(binding.getSize()),
+L120:                           "VkDeviceSize too small");
+L121:             // Set the offset as close as possible to the requested offset while remaining aligned.
+L122:             mAlignedBufferOffsets[bufferIndex] =
+L123:                 (mBufferOffsets[bufferIndex] / offsetAlignment) * offsetAlignment;
+L124:         }
+L125:     }
+L126:     if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+L127:     {
+L128:         mRebindTransformFeedbackBuffer = true;
+L129:     }
+L130:     return contextVk->onBeginTransformFeedback(xfbBufferCount, mBufferHelpers,
+L131:                                                mCounterBufferHelpers);
+L132: }
+L133: angle::Result TransformFeedbackVk::end(const gl::Context *context)
+L134: {
+L135:     ContextVk *contextVk = vk::GetImpl(context);
+L136:     // If there's an active transform feedback query, accumulate the primitives drawn.
+L137:     const gl::State &glState = context->getState();
+L138:     gl::Query *transformFeedbackQuery =
+L139:         glState.getActiveQuery(gl::QueryType::TransformFeedbackPrimitivesWritten);
+L140:     if (transformFeedbackQuery && contextVk->getFeatures().emulateTransformFeedback.enabled)
+L141:     {
+L142:         vk::GetImpl(transformFeedbackQuery)->onTransformFeedbackEnd(mState.getPrimitivesDrawn());
+L143:     }
+L144:     for (angle::ObserverBinding &bufferBinding : mBufferObserverBindings)
+L145:     {
+L146:         bufferBinding.reset();
+L147:     }
+L148:     contextVk->onEndTransformFeedback();
+L149:     releaseCounterBuffers(contextVk->getRenderer());
+L150:     return angle::Result::Continue;
+L151: }
+L152: angle::Result TransformFeedbackVk::pause(const gl::Context *context)
+L153: {
+L154:     ContextVk *contextVk = vk::GetImpl(context);
+L155:     if (contextVk->getFeatures().emulateTransformFeedback.enabled)
+L156:     {
+L157:         // Bind the empty buffer until we resume.
+L158:         const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L159:         ASSERT(executable);
+L160:         size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L161:         const vk::BufferHelper &emptyBuffer = contextVk->getEmptyBuffer();
+L162:         for (size_t xfbIndex = 0; xfbIndex < xfbBufferCount; ++xfbIndex)
+L163:         {
+L164:             mXFBBuffersDesc.updateTransformFeedbackBuffer(xfbIndex, emptyBuffer.getBufferSerial(),
+L165:                                                           0);
+L166:         }
+L167:     }
+L168:     return contextVk->onPauseTransformFeedback();
+L169: }
+L170: angle::Result TransformFeedbackVk::resume(const gl::Context *context)
+L171: {
+L172:     ContextVk *contextVk                    = vk::GetImpl(context);
+L173:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L174:     ASSERT(executable);
+L175:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L176:     if (contextVk->getFeatures().emulateTransformFeedback.enabled)
+L177:     {
+L178:         initializeXFBBuffersDesc(contextVk, xfbBufferCount);
+L179:     }
+L180:     return contextVk->onBeginTransformFeedback(xfbBufferCount, mBufferHelpers,
+L181:                                                mCounterBufferHelpers);
+L182: }
+L183: angle::Result TransformFeedbackVk::bindIndexedBuffer(
+L184:     const gl::Context *context,
+L185:     size_t index,
+L186:     const gl::OffsetBindingPointer<gl::Buffer> &binding)
+L187: {
+L188:     ContextVk *contextVk = vk::GetImpl(context);
+L189:     // Make sure the transform feedback buffers are bound to the program descriptor sets.
+L190:     contextVk->invalidateCurrentTransformFeedbackBuffers();
+L191:     return angle::Result::Continue;
+L192: }
+L193: void TransformFeedbackVk::updateDescriptorSetLayout(
+L194:     ContextVk *contextVk,
+L195:     const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L196:     size_t xfbBufferCount,
+L197:     vk::DescriptorSetLayoutDesc *descSetLayoutOut) const
+L198: {
+L199:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L200:     {
+L201:         return;
+L202:     }
+L203:     for (uint32_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L204:     {
+L205:         const std::string bufferName = GetXfbBufferName(bufferIndex);
+L206:         const ShaderInterfaceVariableInfo &info =
+L207:             variableInfoMap.get(gl::ShaderType::Vertex, bufferName);
+L208:         descSetLayoutOut->update(info.binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+L209:                                  VK_SHADER_STAGE_VERTEX_BIT, nullptr);
+L210:     }
+L211: }
+L212: void TransformFeedbackVk::initDescriptorSet(ContextVk *contextVk,
+L213:                                             const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L214:                                             size_t xfbBufferCount,
+L215:                                             VkDescriptorSet descSet) const
+L216: {
+L217:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L218:     {
+L219:         return;
+L220:     }
+L221:     VkDescriptorBufferInfo *descriptorBufferInfo =
+L222:         contextVk->allocDescriptorBufferInfos(xfbBufferCount);
+L223:     vk::BufferHelper *emptyBuffer = &contextVk->getEmptyBuffer();
+L224:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L225:     {
+L226:         VkDescriptorBufferInfo &bufferInfo = descriptorBufferInfo[bufferIndex];
+L227:         bufferInfo.buffer                  = emptyBuffer->getBuffer().getHandle();
+L228:         bufferInfo.offset                  = 0;
+L229:         bufferInfo.range                   = VK_WHOLE_SIZE;
+L230:     }
+L231:     writeDescriptorSet(contextVk, variableInfoMap, xfbBufferCount, descriptorBufferInfo, descSet);
+L232: }
+L233: void TransformFeedbackVk::updateDescriptorSet(ContextVk *contextVk,
+L234:                                               const gl::ProgramState &programState,
+L235:                                               const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L236:                                               VkDescriptorSet descSet) const
+L237: {
+L238:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L239:     {
+L240:         return;
+L241:     }
+L242:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L243:     ASSERT(executable);
+L244:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L245:     ASSERT(xfbBufferCount > 0);
+L246:     ASSERT(programState.getTransformFeedbackBufferMode() != GL_INTERLEAVED_ATTRIBS ||
+L247:            xfbBufferCount == 1);
+L248:     VkDescriptorBufferInfo *descriptorBufferInfo =
+L249:         contextVk->allocDescriptorBufferInfos(xfbBufferCount);
+L250:     // Update buffer descriptor binding info for output buffers
+L251:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L252:     {
+L253:         VkDescriptorBufferInfo &bufferInfo = descriptorBufferInfo[bufferIndex];
+L254:         bufferInfo.buffer = mBufferHandles[bufferIndex];
+L255:         bufferInfo.offset = mAlignedBufferOffsets[bufferIndex];
+L256:         bufferInfo.range  = mBufferSizes[bufferIndex] +
+L257:                            (mBufferOffsets[bufferIndex] - mAlignedBufferOffsets[bufferIndex]);
+L258:         ASSERT(bufferInfo.range != 0);
+L259:     }
+L260:     writeDescriptorSet(contextVk, variableInfoMap, xfbBufferCount, descriptorBufferInfo, descSet);
+L261: }
+L262: void TransformFeedbackVk::getBufferOffsets(ContextVk *contextVk,
+L263:                                            GLint drawCallFirstVertex,
+L264:                                            int32_t *offsetsOut,
+L265:                                            size_t offsetsSize) const
+L266: {
+L267:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L268:     {
+L269:         return;
+L270:     }
+L271:     GLsizeiptr verticesDrawn                = mState.getVerticesDrawn();
+L272:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L273:     ASSERT(executable);
+L274:     const std::vector<GLsizei> &bufferStrides = executable->getTransformFeedbackStrides();
+L275:     size_t xfbBufferCount                     = executable->getTransformFeedbackBufferCount();
+L276:     ASSERT(xfbBufferCount > 0);
+L277:     // The caller should make sure the offsets array has enough space.  The maximum possible
+L278:     // number of outputs is gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS.
+L279:     ASSERT(offsetsSize >= xfbBufferCount);
+L280:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L281:     {
+L282:         int64_t offsetFromDescriptor =
+L283:             static_cast<int64_t>(mBufferOffsets[bufferIndex] - mAlignedBufferOffsets[bufferIndex]);
+L284:         int64_t drawCallVertexOffset = static_cast<int64_t>(verticesDrawn) - drawCallFirstVertex;
+L285:         int64_t writeOffset =
+L286:             (offsetFromDescriptor + drawCallVertexOffset * bufferStrides[bufferIndex]) /
+L287:             static_cast<int64_t>(sizeof(uint32_t));
+L288:         offsetsOut[bufferIndex] = static_cast<int32_t>(writeOffset);
+L289:         // Assert on overflow.  For now, support transform feedback up to 2GB.
+L290:         ASSERT(offsetsOut[bufferIndex] == writeOffset);
+L291:     }
+L292: }
+L293: void TransformFeedbackVk::onSubjectStateChange(angle::SubjectIndex index,
+L294:                                                angle::SubjectMessage message)
+L295: {
+L296:     if (message == angle::SubjectMessage::BufferVkStorageChanged)
+L297:     {
+L298:         ASSERT(index < mBufferObserverBindings.size());
+L299:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(index);
+L300:         ASSERT(binding.get());
+L301:         BufferVk *bufferVk = vk::GetImpl(binding.get());
+L302:         ASSERT(bufferVk->isBufferValid());
+L303:         VkDeviceSize bufferOffset = 0;
+L304:         mBufferHelpers[index]     = &bufferVk->getBufferAndOffset(&bufferOffset);
+L305:         mBufferOffsets[index]     = binding.getOffset() + bufferOffset;
+L306:         mBufferSizes[index]       = gl::GetBoundBufferAvailableSize(binding);
+L307:         mBufferObserverBindings[index].bind(bufferVk);
+L308:         mXFBBuffersDesc.updateTransformFeedbackBuffer(
+L309:             index, mBufferHelpers[index]->getBufferSerial(), mBufferOffsets[index]);
+L310:         mBufferHandles[index] = mBufferHelpers[index]->getBuffer().getHandle();
+L311:     }
+L312: }
+L313: void TransformFeedbackVk::writeDescriptorSet(ContextVk *contextVk,
+L314:                                              const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L315:                                              size_t xfbBufferCount,
+L316:                                              VkDescriptorBufferInfo *bufferInfo,
+L317:                                              VkDescriptorSet descSet) const
+L318: {
+L319:     ASSERT(contextVk->getFeatures().emulateTransformFeedback.enabled);
+L320:     const std::string bufferName = GetXfbBufferName(0);
+L321:     const ShaderInterfaceVariableInfo &info =
+L322:         variableInfoMap.get(gl::ShaderType::Vertex, bufferName);
+L323:     VkWriteDescriptorSet &writeDescriptorInfo = contextVk->allocWriteDescriptorSet();
+L324:     writeDescriptorInfo.sType                 = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+L325:     writeDescriptorInfo.dstSet                = descSet;
+L326:     writeDescriptorInfo.dstBinding            = info.binding;
+L327:     writeDescriptorInfo.dstArrayElement       = 0;
+L328:     writeDescriptorInfo.descriptorCount       = static_cast<uint32_t>(xfbBufferCount);
+L329:     writeDescriptorInfo.descriptorType        = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+L330:     writeDescriptorInfo.pImageInfo            = nullptr;
+L331:     writeDescriptorInfo.pBufferInfo           = bufferInfo;
+L332:     writeDescriptorInfo.pTexelBufferView      = nullptr;
+L333: }
+L334: }  // namespace rx
+```
+
+## Filter
+The class that stores this reference to Vk::Buffer reassigns the Vk:Buffer handle when the Vk:Buffer's internal storage changes
+Response:
+The code snippet you provided is part of a larger graphics rendering context, specifically dealing with transform feedback operations in Vulkan. The `TransformFeedbackVk` class appears to manage various aspects related to transform feedback buffers and their usage within shader programs for offloading certain computations from the CPU to the GPU.
+
+Here's an overview of what each part does:
+
+- **L261** through **L334** are method declarations that handle different functionalities such as getting buffer offsets, updating descriptor sets, and handling state changes related to transform feedback buffers.
+
+The specific code snippet you're asking about (`L310` - `L312`) deals with the following:
+
+- **L310**: Initializes a Vulkan buffer helper object that will be used for managing and accessing the actual Vulkan buffer. This includes getting its offset within the storage, size of the buffer, and binding it to the context's shader interface.
+
+- **L311**: Updates the descriptor set with information about the transform feedback buffer (TBX), including its name and offsets for each output vertex in the TBX. This is crucial because Vulkan uses descriptors to pass data between the CPU and GPU, so updating this descriptor set ensures that the correct data from the TBX will be used during rendering.
+
+- **L312**: Checks if transform feedback emulation is enabled in the context's features before proceeding with writing the descriptor set. This step is essential to ensure compatibility and prevent runtime errors when attempting operations not supported by the current configuration.
+
+The class reassigns the Vk::Buffer handle (`mBufferHelpers[index]`) whenever there's a change in the buffer's internal storage, as seen at **L308** - **L312**. This is necessary because when the underlying data of a buffer changes (e.g., due to resizing or re-allocating), Vulkan needs to be informed about these changes so it can correctly manage and access the updated data during rendering operations.
+
+In summary, this code snippet plays a critical role in managing transform feedback buffers within a Vulkan application by ensuring that the GPU has accurate information about buffer contents and locations for efficient offloading of computations from the CPU to the GPU.
+
+---PHI3---
+File: TransformFeedbackVk.a.cpp
+Label: 0
+Prompt:
+# CONTEXT
+You will be given a CodeQL query, CPP snippet, the source file containing the snippet, and a filter.
+
+The CPP snippet was retrieved using the CodeQL query, a language used for static analysis. You don't have to understand the syntax of the language, but you should be able to understand the structure of the code.
+
+# INSTRUCTION
+Given the filter, determine if the source file matches the filter (1) or not (0).
+
+Strictly follow the following output format when giving your answer.
+
+# OUTPUT FORMAT
+Return a JSON of the following format.
+{
+    "explanation": <str>,
+    "is_filtered": <1 or 0>
+}
+
+ONLY RETURN JSON. DO NOT PRINT ANYTHING ELSE.
+
+# INPUT
+
+## CodeQL Query
+import cpp
+
+class BufferVkBufferAccessCall extends FunctionCall {
+  BufferVkBufferAccessCall() {
+    this.getType().getName() = "BufferHelper &" and
+    this.getTarget().getDeclaringType().getQualifiedName() = "rx::BufferVk"
+  }
+}
+
+from AssignExpr e, BufferVkBufferAccessCall fc, FieldAccess fa
+where
+  fc.getEnclosingStmt().(ExprStmt).getExpr() = e and
+  (
+    e.getRValue().(AddressOfExpr).getOperand() = fc
+    or
+    e.getRValue() = fc
+  ) and
+  fa.getEnclosingStmt().(ExprStmt).getExpr() = e
+select fc,
+  "BufferVk::mBuffer is accessed through a function call to $@. The result is assigned to $@::$@.",
+  fc.getTarget(), fc.getTarget().getName(), fa.getTarget().getDeclaringType(),
+  fa.getTarget().getDeclaringType().getName(), fa.getTarget(), fa.getTarget().getName()
+
+## CPP Snippet
+```cpp
+L59:             mBufferHelpers[bufferIndex] = &bufferVk->getBufferAndOffset(&bufferOffset);
+```
+
+## Source File
+```cpp
+L1: //
+L2: // Copyright 2016 The ANGLE Project Authors. All rights reserved.
+L3: // Use of this source code is governed by a BSD-style license that can be
+L4: // found in the LICENSE file.
+L5: //
+L6: // TransformFeedbackVk.cpp:
+L7: //    Implements the class methods for TransformFeedbackVk.
+L8: //
+L9: #include "libANGLE/renderer/vulkan/TransformFeedbackVk.h"
+L10: #include "libANGLE/Context.h"
+L11: #include "libANGLE/Query.h"
+L12: #include "libANGLE/renderer/glslang_wrapper_utils.h"
+L13: #include "libANGLE/renderer/vulkan/BufferVk.h"
+L14: #include "libANGLE/renderer/vulkan/ContextVk.h"
+L15: #include "libANGLE/renderer/vulkan/FramebufferVk.h"
+L16: #include "libANGLE/renderer/vulkan/ProgramVk.h"
+L17: #include "libANGLE/renderer/vulkan/QueryVk.h"
+L18: #include "common/debug.h"
+L19: namespace rx
+L20: {
+L21: TransformFeedbackVk::TransformFeedbackVk(const gl::TransformFeedbackState &state)
+L22:     : TransformFeedbackImpl(state),
+L23:       mRebindTransformFeedbackBuffer(false),
+L24:       mBufferHelpers{},
+L25:       mBufferHandles{},
+L26:       mBufferOffsets{},
+L27:       mBufferSizes{},
+L28:       mAlignedBufferOffsets{},
+L29:       mCounterBufferHandles{}
+L30: {}
+L31: TransformFeedbackVk::~TransformFeedbackVk() {}
+L32: void TransformFeedbackVk::onDestroy(const gl::Context *context)
+L33: {
+L34:     ASSERT(std::all_of(mCounterBufferHelpers.begin(), mCounterBufferHelpers.end(),
+L35:                        [](vk::BufferHelper &counterBuffer) { return !counterBuffer.valid(); }));
+L36: }
+L37: void TransformFeedbackVk::releaseCounterBuffers(RendererVk *renderer)
+L38: {
+L39:     for (vk::BufferHelper &bufferHelper : mCounterBufferHelpers)
+L40:     {
+L41:         bufferHelper.release(renderer);
+L42:     }
+L43:     for (VkBuffer &buffer : mCounterBufferHandles)
+L44:     {
+L45:         buffer = VK_NULL_HANDLE;
+L46:     }
+L47: }
+L48: void TransformFeedbackVk::initializeXFBBuffersDesc(ContextVk *contextVk, size_t xfbBufferCount)
+L49: {
+L50:     mXFBBuffersDesc.reset();
+L51:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L52:     {
+L53:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(bufferIndex);
+L54:         ASSERT(binding.get());
+L55:         BufferVk *bufferVk = vk::GetImpl(binding.get());
+L56:         if (bufferVk->isBufferValid())
+L57:         {
+L58:             VkDeviceSize bufferOffset   = 0;
+L59:             mBufferHelpers[bufferIndex] = &bufferVk->getBufferAndOffset(&bufferOffset);
+L60:             mBufferOffsets[bufferIndex] = binding.getOffset() + bufferOffset;
+L61:             mBufferSizes[bufferIndex]   = gl::GetBoundBufferAvailableSize(binding);
+L62:         }
+L63:         else
+L64:         {
+L65:             // This can happen in error conditions.
+L66:             vk::BufferHelper &nullBuffer = contextVk->getEmptyBuffer();
+L67:             mBufferHelpers[bufferIndex]  = &nullBuffer;
+L68:             mBufferOffsets[bufferIndex]  = 0;
+L69:             mBufferSizes[bufferIndex]    = nullBuffer.getSize();
+L70:         }
+L71:         mXFBBuffersDesc.updateTransformFeedbackBuffer(
+L72:             bufferIndex, mBufferHelpers[bufferIndex]->getBufferSerial(),
+L73:             mBufferOffsets[bufferIndex]);
+L74:     }
+L75: }
+L76: angle::Result TransformFeedbackVk::begin(const gl::Context *context,
+L77:                                          gl::PrimitiveMode primitiveMode)
+L78: {
+L79:     ContextVk *contextVk = vk::GetImpl(context);
+L80:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L81:     ASSERT(executable);
+L82:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L83:     initializeXFBBuffersDesc(contextVk, xfbBufferCount);
+L84:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L85:     {
+L86:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(bufferIndex);
+L87:         mBufferHandles[bufferIndex] = mBufferHelpers[bufferIndex]->getBuffer().getHandle();
+L88:         if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+L89:         {
+L90:             if (mCounterBufferHandles[bufferIndex] == VK_NULL_HANDLE)
+L91:             {
+L92:                 VkBufferCreateInfo createInfo = {};
+L93:                 createInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+L94:                 createInfo.size               = 16;
+L95:                 createInfo.usage       = VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
+L96:                 createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+L97:                 vk::BufferHelper &bufferHelper = mCounterBufferHelpers[bufferIndex];
+L98:                 ANGLE_TRY(
+L99:                     bufferHelper.init(contextVk, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
+L100:                 mCounterBufferHandles[bufferIndex] = bufferHelper.getBuffer().getHandle();
+L101:             }
+L102:         }
+L103:         else
+L104:         {
+L105:             ASSERT(contextVk->getFeatures().emulateTransformFeedback.enabled);
+L106:             RendererVk *rendererVk = contextVk->getRenderer();
+L107:             const VkDeviceSize offsetAlignment =
+L108:                 rendererVk->getPhysicalDeviceProperties().limits.minStorageBufferOffsetAlignment;
+L109:             // Make sure there's no possible under/overflow with binding size.
+L110:             static_assert(sizeof(VkDeviceSize) >= sizeof(binding.getSize()),
+L111:                           "VkDeviceSize too small");
+L112:             // Set the offset as close as possible to the requested offset while remaining aligned.
+L113:             mAlignedBufferOffsets[bufferIndex] =
+L114:                 (mBufferOffsets[bufferIndex] / offsetAlignment) * offsetAlignment;
+L115:         }
+L116:     }
+L117:     if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+L118:     {
+L119:         mRebindTransformFeedbackBuffer = true;
+L120:     }
+L121:     return contextVk->onBeginTransformFeedback(xfbBufferCount, mBufferHelpers,
+L122:                                                mCounterBufferHelpers);
+L123: }
+L124: angle::Result TransformFeedbackVk::end(const gl::Context *context)
+L125: {
+L126:     ContextVk *contextVk = vk::GetImpl(context);
+L127:     // If there's an active transform feedback query, accumulate the primitives drawn.
+L128:     const gl::State &glState = context->getState();
+L129:     gl::Query *transformFeedbackQuery =
+L130:         glState.getActiveQuery(gl::QueryType::TransformFeedbackPrimitivesWritten);
+L131:     if (transformFeedbackQuery && contextVk->getFeatures().emulateTransformFeedback.enabled)
+L132:     {
+L133:         vk::GetImpl(transformFeedbackQuery)->onTransformFeedbackEnd(mState.getPrimitivesDrawn());
+L134:     }
+L135:     contextVk->onEndTransformFeedback();
+L136:     releaseCounterBuffers(contextVk->getRenderer());
+L137:     return angle::Result::Continue;
+L138: }
+L139: angle::Result TransformFeedbackVk::pause(const gl::Context *context)
+L140: {
+L141:     ContextVk *contextVk = vk::GetImpl(context);
+L142:     if (contextVk->getFeatures().emulateTransformFeedback.enabled)
+L143:     {
+L144:         // Bind the empty buffer until we resume.
+L145:         const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L146:         ASSERT(executable);
+L147:         size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L148:         const vk::BufferHelper &emptyBuffer = contextVk->getEmptyBuffer();
+L149:         for (size_t xfbIndex = 0; xfbIndex < xfbBufferCount; ++xfbIndex)
+L150:         {
+L151:             mXFBBuffersDesc.updateTransformFeedbackBuffer(xfbIndex, emptyBuffer.getBufferSerial(),
+L152:                                                           0);
+L153:         }
+L154:     }
+L155:     return contextVk->onPauseTransformFeedback();
+L156: }
+L157: angle::Result TransformFeedbackVk::resume(const gl::Context *context)
+L158: {
+L159:     ContextVk *contextVk                    = vk::GetImpl(context);
+L160:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L161:     ASSERT(executable);
+L162:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L163:     if (contextVk->getFeatures().emulateTransformFeedback.enabled)
+L164:     {
+L165:         initializeXFBBuffersDesc(contextVk, xfbBufferCount);
+L166:     }
+L167:     return contextVk->onBeginTransformFeedback(xfbBufferCount, mBufferHelpers,
+L168:                                                mCounterBufferHelpers);
+L169: }
+L170: angle::Result TransformFeedbackVk::bindIndexedBuffer(
+L171:     const gl::Context *context,
+L172:     size_t index,
+L173:     const gl::OffsetBindingPointer<gl::Buffer> &binding)
+L174: {
+L175:     ContextVk *contextVk = vk::GetImpl(context);
+L176:     // Make sure the transform feedback buffers are bound to the program descriptor sets.
+L177:     contextVk->invalidateCurrentTransformFeedbackBuffers();
+L178:     return angle::Result::Continue;
+L179: }
+L180: void TransformFeedbackVk::updateDescriptorSetLayout(
+L181:     ContextVk *contextVk,
+L182:     const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L183:     size_t xfbBufferCount,
+L184:     vk::DescriptorSetLayoutDesc *descSetLayoutOut) const
+L185: {
+L186:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L187:     {
+L188:         return;
+L189:     }
+L190:     for (uint32_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L191:     {
+L192:         const std::string bufferName = GetXfbBufferName(bufferIndex);
+L193:         const ShaderInterfaceVariableInfo &info =
+L194:             variableInfoMap.get(gl::ShaderType::Vertex, bufferName);
+L195:         descSetLayoutOut->update(info.binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+L196:                                  VK_SHADER_STAGE_VERTEX_BIT, nullptr);
+L197:     }
+L198: }
+L199: void TransformFeedbackVk::initDescriptorSet(ContextVk *contextVk,
+L200:                                             const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L201:                                             size_t xfbBufferCount,
+L202:                                             VkDescriptorSet descSet) const
+L203: {
+L204:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L205:     {
+L206:         return;
+L207:     }
+L208:     VkDescriptorBufferInfo *descriptorBufferInfo =
+L209:         contextVk->allocDescriptorBufferInfos(xfbBufferCount);
+L210:     vk::BufferHelper *emptyBuffer = &contextVk->getEmptyBuffer();
+L211:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L212:     {
+L213:         VkDescriptorBufferInfo &bufferInfo = descriptorBufferInfo[bufferIndex];
+L214:         bufferInfo.buffer                  = emptyBuffer->getBuffer().getHandle();
+L215:         bufferInfo.offset                  = 0;
+L216:         bufferInfo.range                   = VK_WHOLE_SIZE;
+L217:     }
+L218:     writeDescriptorSet(contextVk, variableInfoMap, xfbBufferCount, descriptorBufferInfo, descSet);
+L219: }
+L220: void TransformFeedbackVk::updateDescriptorSet(ContextVk *contextVk,
+L221:                                               const gl::ProgramState &programState,
+L222:                                               const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L223:                                               VkDescriptorSet descSet) const
+L224: {
+L225:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L226:     {
+L227:         return;
+L228:     }
+L229:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L230:     ASSERT(executable);
+L231:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L232:     ASSERT(xfbBufferCount > 0);
+L233:     ASSERT(programState.getTransformFeedbackBufferMode() != GL_INTERLEAVED_ATTRIBS ||
+L234:            xfbBufferCount == 1);
+L235:     VkDescriptorBufferInfo *descriptorBufferInfo =
+L236:         contextVk->allocDescriptorBufferInfos(xfbBufferCount);
+L237:     // Update buffer descriptor binding info for output buffers
+L238:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L239:     {
+L240:         VkDescriptorBufferInfo &bufferInfo = descriptorBufferInfo[bufferIndex];
+L241:         bufferInfo.buffer = mBufferHandles[bufferIndex];
+L242:         bufferInfo.offset = mAlignedBufferOffsets[bufferIndex];
+L243:         bufferInfo.range  = mBufferSizes[bufferIndex] +
+L244:                            (mBufferOffsets[bufferIndex] - mAlignedBufferOffsets[bufferIndex]);
+L245:         ASSERT(bufferInfo.range != 0);
+L246:     }
+L247:     writeDescriptorSet(contextVk, variableInfoMap, xfbBufferCount, descriptorBufferInfo, descSet);
+L248: }
+L249: void TransformFeedbackVk::getBufferOffsets(ContextVk *contextVk,
+L250:                                            GLint drawCallFirstVertex,
+L251:                                            int32_t *offsetsOut,
+L252:                                            size_t offsetsSize) const
+L253: {
+L254:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L255:     {
+L256:         return;
+L257:     }
+L258:     GLsizeiptr verticesDrawn                = mState.getVerticesDrawn();
+L259:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L260:     ASSERT(executable);
+L261:     const std::vector<GLsizei> &bufferStrides = executable->getTransformFeedbackStrides();
+L262:     size_t xfbBufferCount                     = executable->getTransformFeedbackBufferCount();
+L263:     ASSERT(xfbBufferCount > 0);
+L264:     // The caller should make sure the offsets array has enough space.  The maximum possible
+L265:     // number of outputs is gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS.
+L266:     ASSERT(offsetsSize >= xfbBufferCount);
+L267:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L268:     {
+L269:         int64_t offsetFromDescriptor =
+L270:             static_cast<int64_t>(mBufferOffsets[bufferIndex] - mAlignedBufferOffsets[bufferIndex]);
+L271:         int64_t drawCallVertexOffset = static_cast<int64_t>(verticesDrawn) - drawCallFirstVertex;
+L272:         int64_t writeOffset =
+L273:             (offsetFromDescriptor + drawCallVertexOffset * bufferStrides[bufferIndex]) /
+L274:             static_cast<int64_t>(sizeof(uint32_t));
+L275:         offsetsOut[bufferIndex] = static_cast<int32_t>(writeOffset);
+L276:         // Assert on overflow.  For now, support transform feedback up to 2GB.
+L277:         ASSERT(offsetsOut[bufferIndex] == writeOffset);
+L278:     }
+L279: }
+L280: void TransformFeedbackVk::writeDescriptorSet(ContextVk *contextVk,
+L281:                                              const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L282:                                              size_t xfbBufferCount,
+L283:                                              VkDescriptorBufferInfo *bufferInfo,
+L284:                                              VkDescriptorSet descSet) const
+L285: {
+L286:     ASSERT(contextVk->getFeatures().emulateTransformFeedback.enabled);
+L287:     const std::string bufferName = GetXfbBufferName(0);
+L288:     const ShaderInterfaceVariableInfo &info =
+L289:         variableInfoMap.get(gl::ShaderType::Vertex, bufferName);
+L290:     VkWriteDescriptorSet &writeDescriptorInfo = contextVk->allocWriteDescriptorSet();
+L291:     writeDescriptorInfo.sType                 = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+L292:     writeDescriptorInfo.dstSet                = descSet;
+L293:     writeDescriptorInfo.dstBinding            = info.binding;
+L294:     writeDescriptorInfo.dstArrayElement       = 0;
+L295:     writeDescriptorInfo.descriptorCount       = static_cast<uint32_t>(xfbBufferCount);
+L296:     writeDescriptorInfo.descriptorType        = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+L297:     writeDescriptorInfo.pImageInfo            = nullptr;
+L298:     writeDescriptorInfo.pBufferInfo           = bufferInfo;
+L299:     writeDescriptorInfo.pTexelBufferView      = nullptr;
+L300: }
+L301: }  // namespace rx
+```
+
+## Filter
+The class that stores this reference to Vk::Buffer reassigns the Vk:Buffer handle when the Vk:Buffer's internal storage changes
+Response:
+It appears you have provided a snippet of code related to a `TransformFeedbackVk` class, which is part of a larger graphics rendering or compute operation context. The code includes methods for updating descriptor sets and managing buffer offsets in the context of Vulkan's transform feedback mechanism. Let's break down the key parts:
+
+1. **Class Definition**: `TransformFeedbackVk` is likely a class that encapsulates functionality related to handling transform feedback buffers within a graphics application using Vulkan API.
+
+2. **Method 0 (`UpdateDescriptorSets`)**: This method updates the descriptor sets for a given context and buffer index, ensuring that the `emulateTransformFeedback` feature is enabled before proceeding with the update. It allocates buffers, creates an array of descriptors, and writes them to the specified Vulkan descriptor set (`descSet`).
+
+3. **Method 1 (`getBuffer`)**: This method retrieves a reference to a `Vk::Buffer` object associated with a specific buffer name (e.g., "xfb_buffer") within an instance of `TransformFeedbackVk`. It returns the Vulkan handle for that buffer, allowing other parts of the codebase to interact with it directly.
+
+4. **Method 2 (`getXfbBuffer`)**: This method is similar to `getBuffer` but specifically retrieves a reference to an X-buffer (a special type of transform feedback buffer in Vulkan). It returns the Vulkan handle for that specific X-buffer.
+
+5. **Method 3 (`writeDescriptorSet`)**: This method writes descriptor sets with information about storage buffers, including their binding and offset within a larger structure. The `contextVk` parameter represents an instance of `ContextVk`, which likely contains additional contextual data required for the operation (e.g., shader interface info).
+
+6. **Method 4 (`getXfbBufferName`)**: This method returns the name associated with a specific X-buffer, allowing other parts of the code to identify and reference it by its name.
+
+7. **Filtering Mechanism**: The `getBuffer` and `getXfbBuffer` methods provide access to Vulkan buffer handles while ensuring that any changes in internal storage are reflected correctly. This is important for maintaining consistency between the class's representation of buffers and their actual usage within the Vulkan API.
+
+Overall, this code snippet demonstrates how a `TransformFeedbackVk` class can manage transform feedback buffers and descriptor sets in a graphics application using the Vulkan API. The methods provide essential functionality for updating and accessing buffer information while ensuring compatibility with Vulkan's requirements.
+
+File: TransformFeedbackVk.b.cpp
+Label: 1
+Prompt:
+# CONTEXT
+You will be given a CodeQL query, CPP snippet, the source file containing the snippet, and a filter.
+
+The CPP snippet was retrieved using the CodeQL query, a language used for static analysis. You don't have to understand the syntax of the language, but you should be able to understand the structure of the code.
+
+# INSTRUCTION
+Given the filter, determine if the source file matches the filter (1) or not (0).
+
+Strictly follow the following output format when giving your answer.
+
+# OUTPUT FORMAT
+Return a JSON of the following format.
+{
+    "explanation": <str>,
+    "is_filtered": <1 or 0>
+}
+
+ONLY RETURN JSON. DO NOT PRINT ANYTHING ELSE.
+
+# INPUT
+
+## CodeQL Query
+import cpp
+
+class BufferVkBufferAccessCall extends FunctionCall {
+  BufferVkBufferAccessCall() {
+    this.getType().getName() = "BufferHelper &" and
+    this.getTarget().getDeclaringType().getQualifiedName() = "rx::BufferVk"
+  }
+}
+
+from AssignExpr e, BufferVkBufferAccessCall fc, FieldAccess fa
+where
+  fc.getEnclosingStmt().(ExprStmt).getExpr() = e and
+  (
+    e.getRValue().(AddressOfExpr).getOperand() = fc
+    or
+    e.getRValue() = fc
+  ) and
+  fa.getEnclosingStmt().(ExprStmt).getExpr() = e
+select fc,
+  "BufferVk::mBuffer is accessed through a function call to $@. The result is assigned to $@::$@.",
+  fc.getTarget(), fc.getTarget().getName(), fa.getTarget().getDeclaringType(),
+  fa.getTarget().getDeclaringType().getName(), fa.getTarget(), fa.getTarget().getName()
+
+## CPP Snippet
+```cpp
+L66:             mBufferHelpers[bufferIndex] = &bufferVk->getBufferAndOffset(&bufferOffset);
+```
+
+## Source File
+```cpp
+L1: //
+L2: // Copyright 2016 The ANGLE Project Authors. All rights reserved.
+L3: // Use of this source code is governed by a BSD-style license that can be
+L4: // found in the LICENSE file.
+L5: //
+L6: // TransformFeedbackVk.cpp:
+L7: //    Implements the class methods for TransformFeedbackVk.
+L8: //
+L9: #include "libANGLE/renderer/vulkan/TransformFeedbackVk.h"
+L10: #include "libANGLE/Context.h"
+L11: #include "libANGLE/Query.h"
+L12: #include "libANGLE/renderer/glslang_wrapper_utils.h"
+L13: #include "libANGLE/renderer/vulkan/BufferVk.h"
+L14: #include "libANGLE/renderer/vulkan/ContextVk.h"
+L15: #include "libANGLE/renderer/vulkan/FramebufferVk.h"
+L16: #include "libANGLE/renderer/vulkan/ProgramVk.h"
+L17: #include "libANGLE/renderer/vulkan/QueryVk.h"
+L18: #include "common/debug.h"
+L19: namespace rx
+L20: {
+L21: TransformFeedbackVk::TransformFeedbackVk(const gl::TransformFeedbackState &state)
+L22:     : TransformFeedbackImpl(state),
+L23:       mRebindTransformFeedbackBuffer(false),
+L24:       mBufferHelpers{},
+L25:       mBufferHandles{},
+L26:       mBufferOffsets{},
+L27:       mBufferSizes{},
+L28:       mAlignedBufferOffsets{},
+L29:       mCounterBufferHandles{}
+L30: {
+L31:     for (angle::SubjectIndex bufferIndex = 0;
+L32:          bufferIndex < gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS; ++bufferIndex)
+L33:     {
+L34:         mBufferObserverBindings.emplace_back(this, bufferIndex);
+L35:     }
+L36: }
+L37: TransformFeedbackVk::~TransformFeedbackVk() {}
+L38: void TransformFeedbackVk::onDestroy(const gl::Context *context)
+L39: {
+L40:     ContextVk *contextVk   = vk::GetImpl(context);
+L41:     RendererVk *rendererVk = contextVk->getRenderer();
+L42:     releaseCounterBuffers(rendererVk);
+L43: }
+L44: void TransformFeedbackVk::releaseCounterBuffers(RendererVk *renderer)
+L45: {
+L46:     for (vk::BufferHelper &bufferHelper : mCounterBufferHelpers)
+L47:     {
+L48:         bufferHelper.release(renderer);
+L49:     }
+L50:     for (VkBuffer &buffer : mCounterBufferHandles)
+L51:     {
+L52:         buffer = VK_NULL_HANDLE;
+L53:     }
+L54: }
+L55: void TransformFeedbackVk::initializeXFBBuffersDesc(ContextVk *contextVk, size_t xfbBufferCount)
+L56: {
+L57:     mXFBBuffersDesc.reset();
+L58:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L59:     {
+L60:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(bufferIndex);
+L61:         ASSERT(binding.get());
+L62:         BufferVk *bufferVk = vk::GetImpl(binding.get());
+L63:         if (bufferVk->isBufferValid())
+L64:         {
+L65:             VkDeviceSize bufferOffset   = 0;
+L66:             mBufferHelpers[bufferIndex] = &bufferVk->getBufferAndOffset(&bufferOffset);
+L67:             mBufferOffsets[bufferIndex] = binding.getOffset() + bufferOffset;
+L68:             mBufferSizes[bufferIndex]   = gl::GetBoundBufferAvailableSize(binding);
+L69:             mBufferObserverBindings[bufferIndex].bind(bufferVk);
+L70:         }
+L71:         else
+L72:         {
+L73:             // This can happen in error conditions.
+L74:             vk::BufferHelper &nullBuffer = contextVk->getEmptyBuffer();
+L75:             mBufferHelpers[bufferIndex]  = &nullBuffer;
+L76:             mBufferOffsets[bufferIndex]  = 0;
+L77:             mBufferSizes[bufferIndex]    = nullBuffer.getSize();
+L78:             mBufferObserverBindings[bufferIndex].reset();
+L79:         }
+L80:         mXFBBuffersDesc.updateTransformFeedbackBuffer(
+L81:             bufferIndex, mBufferHelpers[bufferIndex]->getBufferSerial(),
+L82:             mBufferOffsets[bufferIndex]);
+L83:     }
+L84: }
+L85: angle::Result TransformFeedbackVk::begin(const gl::Context *context,
+L86:                                          gl::PrimitiveMode primitiveMode)
+L87: {
+L88:     ContextVk *contextVk = vk::GetImpl(context);
+L89:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L90:     ASSERT(executable);
+L91:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L92:     initializeXFBBuffersDesc(contextVk, xfbBufferCount);
+L93:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L94:     {
+L95:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(bufferIndex);
+L96:         mBufferHandles[bufferIndex] = mBufferHelpers[bufferIndex]->getBuffer().getHandle();
+L97:         if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+L98:         {
+L99:             if (mCounterBufferHandles[bufferIndex] == VK_NULL_HANDLE)
+L100:             {
+L101:                 VkBufferCreateInfo createInfo = {};
+L102:                 createInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+L103:                 createInfo.size               = 16;
+L104:                 createInfo.usage       = VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
+L105:                 createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+L106:                 vk::BufferHelper &bufferHelper = mCounterBufferHelpers[bufferIndex];
+L107:                 ANGLE_TRY(
+L108:                     bufferHelper.init(contextVk, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
+L109:                 mCounterBufferHandles[bufferIndex] = bufferHelper.getBuffer().getHandle();
+L110:             }
+L111:         }
+L112:         else
+L113:         {
+L114:             ASSERT(contextVk->getFeatures().emulateTransformFeedback.enabled);
+L115:             RendererVk *rendererVk = contextVk->getRenderer();
+L116:             const VkDeviceSize offsetAlignment =
+L117:                 rendererVk->getPhysicalDeviceProperties().limits.minStorageBufferOffsetAlignment;
+L118:             // Make sure there's no possible under/overflow with binding size.
+L119:             static_assert(sizeof(VkDeviceSize) >= sizeof(binding.getSize()),
+L120:                           "VkDeviceSize too small");
+L121:             // Set the offset as close as possible to the requested offset while remaining aligned.
+L122:             mAlignedBufferOffsets[bufferIndex] =
+L123:                 (mBufferOffsets[bufferIndex] / offsetAlignment) * offsetAlignment;
+L124:         }
+L125:     }
+L126:     if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+L127:     {
+L128:         mRebindTransformFeedbackBuffer = true;
+L129:     }
+L130:     return contextVk->onBeginTransformFeedback(xfbBufferCount, mBufferHelpers,
+L131:                                                mCounterBufferHelpers);
+L132: }
+L133: angle::Result TransformFeedbackVk::end(const gl::Context *context)
+L134: {
+L135:     ContextVk *contextVk = vk::GetImpl(context);
+L136:     // If there's an active transform feedback query, accumulate the primitives drawn.
+L137:     const gl::State &glState = context->getState();
+L138:     gl::Query *transformFeedbackQuery =
+L139:         glState.getActiveQuery(gl::QueryType::TransformFeedbackPrimitivesWritten);
+L140:     if (transformFeedbackQuery && contextVk->getFeatures().emulateTransformFeedback.enabled)
+L141:     {
+L142:         vk::GetImpl(transformFeedbackQuery)->onTransformFeedbackEnd(mState.getPrimitivesDrawn());
+L143:     }
+L144:     for (angle::ObserverBinding &bufferBinding : mBufferObserverBindings)
+L145:     {
+L146:         bufferBinding.reset();
+L147:     }
+L148:     contextVk->onEndTransformFeedback();
+L149:     releaseCounterBuffers(contextVk->getRenderer());
+L150:     return angle::Result::Continue;
+L151: }
+L152: angle::Result TransformFeedbackVk::pause(const gl::Context *context)
+L153: {
+L154:     ContextVk *contextVk = vk::GetImpl(context);
+L155:     if (contextVk->getFeatures().emulateTransformFeedback.enabled)
+L156:     {
+L157:         // Bind the empty buffer until we resume.
+L158:         const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L159:         ASSERT(executable);
+L160:         size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L161:         const vk::BufferHelper &emptyBuffer = contextVk->getEmptyBuffer();
+L162:         for (size_t xfbIndex = 0; xfbIndex < xfbBufferCount; ++xfbIndex)
+L163:         {
+L164:             mXFBBuffersDesc.updateTransformFeedbackBuffer(xfbIndex, emptyBuffer.getBufferSerial(),
+L165:                                                           0);
+L166:         }
+L167:     }
+L168:     return contextVk->onPauseTransformFeedback();
+L169: }
+L170: angle::Result TransformFeedbackVk::resume(const gl::Context *context)
+L171: {
+L172:     ContextVk *contextVk                    = vk::GetImpl(context);
+L173:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L174:     ASSERT(executable);
+L175:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L176:     if (contextVk->getFeatures().emulateTransformFeedback.enabled)
+L177:     {
+L178:         initializeXFBBuffersDesc(contextVk, xfbBufferCount);
+L179:     }
+L180:     return contextVk->onBeginTransformFeedback(xfbBufferCount, mBufferHelpers,
+L181:                                                mCounterBufferHelpers);
+L182: }
+L183: angle::Result TransformFeedbackVk::bindIndexedBuffer(
+L184:     const gl::Context *context,
+L185:     size_t index,
+L186:     const gl::OffsetBindingPointer<gl::Buffer> &binding)
+L187: {
+L188:     ContextVk *contextVk = vk::GetImpl(context);
+L189:     // Make sure the transform feedback buffers are bound to the program descriptor sets.
+L190:     contextVk->invalidateCurrentTransformFeedbackBuffers();
+L191:     return angle::Result::Continue;
+L192: }
+L193: void TransformFeedbackVk::updateDescriptorSetLayout(
+L194:     ContextVk *contextVk,
+L195:     const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L196:     size_t xfbBufferCount,
+L197:     vk::DescriptorSetLayoutDesc *descSetLayoutOut) const
+L198: {
+L199:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L200:     {
+L201:         return;
+L202:     }
+L203:     for (uint32_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L204:     {
+L205:         const std::string bufferName = GetXfbBufferName(bufferIndex);
+L206:         const ShaderInterfaceVariableInfo &info =
+L207:             variableInfoMap.get(gl::ShaderType::Vertex, bufferName);
+L208:         descSetLayoutOut->update(info.binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+L209:                                  VK_SHADER_STAGE_VERTEX_BIT, nullptr);
+L210:     }
+L211: }
+L212: void TransformFeedbackVk::initDescriptorSet(ContextVk *contextVk,
+L213:                                             const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L214:                                             size_t xfbBufferCount,
+L215:                                             VkDescriptorSet descSet) const
+L216: {
+L217:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L218:     {
+L219:         return;
+L220:     }
+L221:     VkDescriptorBufferInfo *descriptorBufferInfo =
+L222:         contextVk->allocDescriptorBufferInfos(xfbBufferCount);
+L223:     vk::BufferHelper *emptyBuffer = &contextVk->getEmptyBuffer();
+L224:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L225:     {
+L226:         VkDescriptorBufferInfo &bufferInfo = descriptorBufferInfo[bufferIndex];
+L227:         bufferInfo.buffer                  = emptyBuffer->getBuffer().getHandle();
+L228:         bufferInfo.offset                  = 0;
+L229:         bufferInfo.range                   = VK_WHOLE_SIZE;
+L230:     }
+L231:     writeDescriptorSet(contextVk, variableInfoMap, xfbBufferCount, descriptorBufferInfo, descSet);
+L232: }
+L233: void TransformFeedbackVk::updateDescriptorSet(ContextVk *contextVk,
+L234:                                               const gl::ProgramState &programState,
+L235:                                               const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L236:                                               VkDescriptorSet descSet) const
+L237: {
+L238:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L239:     {
+L240:         return;
+L241:     }
+L242:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L243:     ASSERT(executable);
+L244:     size_t xfbBufferCount = executable->getTransformFeedbackBufferCount();
+L245:     ASSERT(xfbBufferCount > 0);
+L246:     ASSERT(programState.getTransformFeedbackBufferMode() != GL_INTERLEAVED_ATTRIBS ||
+L247:            xfbBufferCount == 1);
+L248:     VkDescriptorBufferInfo *descriptorBufferInfo =
+L249:         contextVk->allocDescriptorBufferInfos(xfbBufferCount);
+L250:     // Update buffer descriptor binding info for output buffers
+L251:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L252:     {
+L253:         VkDescriptorBufferInfo &bufferInfo = descriptorBufferInfo[bufferIndex];
+L254:         bufferInfo.buffer = mBufferHandles[bufferIndex];
+L255:         bufferInfo.offset = mAlignedBufferOffsets[bufferIndex];
+L256:         bufferInfo.range  = mBufferSizes[bufferIndex] +
+L257:                            (mBufferOffsets[bufferIndex] - mAlignedBufferOffsets[bufferIndex]);
+L258:         ASSERT(bufferInfo.range != 0);
+L259:     }
+L260:     writeDescriptorSet(contextVk, variableInfoMap, xfbBufferCount, descriptorBufferInfo, descSet);
+L261: }
+L262: void TransformFeedbackVk::getBufferOffsets(ContextVk *contextVk,
+L263:                                            GLint drawCallFirstVertex,
+L264:                                            int32_t *offsetsOut,
+L265:                                            size_t offsetsSize) const
+L266: {
+L267:     if (!contextVk->getFeatures().emulateTransformFeedback.enabled)
+L268:     {
+L269:         return;
+L270:     }
+L271:     GLsizeiptr verticesDrawn                = mState.getVerticesDrawn();
+L272:     const gl::ProgramExecutable *executable = contextVk->getState().getProgramExecutable();
+L273:     ASSERT(executable);
+L274:     const std::vector<GLsizei> &bufferStrides = executable->getTransformFeedbackStrides();
+L275:     size_t xfbBufferCount                     = executable->getTransformFeedbackBufferCount();
+L276:     ASSERT(xfbBufferCount > 0);
+L277:     // The caller should make sure the offsets array has enough space.  The maximum possible
+L278:     // number of outputs is gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS.
+L279:     ASSERT(offsetsSize >= xfbBufferCount);
+L280:     for (size_t bufferIndex = 0; bufferIndex < xfbBufferCount; ++bufferIndex)
+L281:     {
+L282:         int64_t offsetFromDescriptor =
+L283:             static_cast<int64_t>(mBufferOffsets[bufferIndex] - mAlignedBufferOffsets[bufferIndex]);
+L284:         int64_t drawCallVertexOffset = static_cast<int64_t>(verticesDrawn) - drawCallFirstVertex;
+L285:         int64_t writeOffset =
+L286:             (offsetFromDescriptor + drawCallVertexOffset * bufferStrides[bufferIndex]) /
+L287:             static_cast<int64_t>(sizeof(uint32_t));
+L288:         offsetsOut[bufferIndex] = static_cast<int32_t>(writeOffset);
+L289:         // Assert on overflow.  For now, support transform feedback up to 2GB.
+L290:         ASSERT(offsetsOut[bufferIndex] == writeOffset);
+L291:     }
+L292: }
+L293: void TransformFeedbackVk::onSubjectStateChange(angle::SubjectIndex index,
+L294:                                                angle::SubjectMessage message)
+L295: {
+L296:     if (message == angle::SubjectMessage::BufferVkStorageChanged)
+L297:     {
+L298:         ASSERT(index < mBufferObserverBindings.size());
+L299:         const gl::OffsetBindingPointer<gl::Buffer> &binding = mState.getIndexedBuffer(index);
+L300:         ASSERT(binding.get());
+L301:         BufferVk *bufferVk = vk::GetImpl(binding.get());
+L302:         ASSERT(bufferVk->isBufferValid());
+L303:         VkDeviceSize bufferOffset = 0;
+L304:         mBufferHelpers[index]     = &bufferVk->getBufferAndOffset(&bufferOffset);
+L305:         mBufferOffsets[index]     = binding.getOffset() + bufferOffset;
+L306:         mBufferSizes[index]       = gl::GetBoundBufferAvailableSize(binding);
+L307:         mBufferObserverBindings[index].bind(bufferVk);
+L308:         mXFBBuffersDesc.updateTransformFeedbackBuffer(
+L309:             index, mBufferHelpers[index]->getBufferSerial(), mBufferOffsets[index]);
+L310:         mBufferHandles[index] = mBufferHelpers[index]->getBuffer().getHandle();
+L311:     }
+L312: }
+L313: void TransformFeedbackVk::writeDescriptorSet(ContextVk *contextVk,
+L314:                                              const ShaderInterfaceVariableInfoMap &variableInfoMap,
+L315:                                              size_t xfbBufferCount,
+L316:                                              VkDescriptorBufferInfo *bufferInfo,
+L317:                                              VkDescriptorSet descSet) const
+L318: {
+L319:     ASSERT(contextVk->getFeatures().emulateTransformFeedback.enabled);
+L320:     const std::string bufferName = GetXfbBufferName(0);
+L321:     const ShaderInterfaceVariableInfo &info =
+L322:         variableInfoMap.get(gl::ShaderType::Vertex, bufferName);
+L323:     VkWriteDescriptorSet &writeDescriptorInfo = contextVk->allocWriteDescriptorSet();
+L324:     writeDescriptorInfo.sType                 = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+L325:     writeDescriptorInfo.dstSet                = descSet;
+L326:     writeDescriptorInfo.dstBinding            = info.binding;
+L327:     writeDescriptorInfo.dstArrayElement       = 0;
+L328:     writeDescriptorInfo.descriptorCount       = static_cast<uint32_t>(xfbBufferCount);
+L329:     writeDescriptorInfo.descriptorType        = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+L330:     writeDescriptorInfo.pImageInfo            = nullptr;
+L331:     writeDescriptorInfo.pBufferInfo           = bufferInfo;
+L332:     writeDescriptorInfo.pTexelBufferView      = nullptr;
+L333: }
+L334: }  // namespace rx
+```
+
+## Filter
+The class that stores this reference to Vk::Buffer reassigns the Vk:Buffer handle when the Vk:Buffer's internal storage changes
+Response:
+The code snippet you provided is part of a larger graphics rendering context, specifically dealing with transform feedback operations in Vulkan. The `TransformFeedbackVk` class appears to manage various aspects related to transform feedback buffers and their usage within shader programs for offloading certain computations from the CPU to the GPU.
+
+Here's an overview of what each part does:
+
+- **L261** through **L334** are method declarations that handle different functionalities such as getting buffer offsets, updating descriptor sets, and handling state changes related to transform feedback buffers.
+
+The specific code snippet you're asking about (`L310` - `L312`) deals with the following:
+
+- **L310**: Initializes a Vulkan buffer helper object that will be used for managing and accessing the actual Vulkan buffer. This includes getting its offset within the storage, size of the buffer, and binding it to the context's shader interface.
+
+- **L311**: Updates the descriptor set with information about the transform feedback buffer (TBX), including its name and offsets for each output vertex in the TBX. This is crucial because Vulkan uses descriptors to pass data between the CPU and GPU, so updating this descriptor set ensures that the correct data from the TBX will be used during rendering.
+
+- **L312**: Checks if transform feedback emulation is enabled in the context's features before proceeding with writing the descriptor set. This step is essential to ensure compatibility and prevent runtime errors when attempting operations not supported by the current configuration.
+
+The class reassigns the Vk::Buffer handle (`mBufferHelpers[index]`) whenever there's a change in the buffer's internal storage, as seen at **L308** - **L312**. This is necessary because when the underlying data of a buffer changes (e.g., due to resizing or re-allocating), Vulkan needs to be informed about these changes so it can correctly manage and access the updated data during rendering operations.
+
+In summary, this code snippet plays a critical role in managing transform feedback buffers within a Vulkan application by ensuring that the GPU has accurate information about buffer contents and locations for efficient offloading of computations from the CPU to the GPU.
+

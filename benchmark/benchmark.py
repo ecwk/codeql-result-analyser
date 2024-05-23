@@ -5,30 +5,40 @@ import ollama
 import pandas as pd
 
 
-def stream_model_response(model: str, message: str, handler: callable):
-    stream = ollama.chat(model="codellama", message="Hello, how are you?", stream=True)
-
-    for chunk in stream:
-        message = chunk["message"]["content"]
-        handler(message)
+def stream_model_response(model: str, message: str) -> str:
+    stream = ollama.chat(
+        model=model,
+        messages=[{"role": "user", "content": message}],
+        options={"temperature": 0.0},
+        stream=True,
+    )
+    return stream
 
 
 def get_model_response(model: str, message: str) -> str:
-    response = ollama.chat(model=model, messages=[{"role": "user", "content": message}])
+    response = ollama.chat(
+        model=model,
+        messages=[{"role": "user", "content": message}],
+        options={"temperature": 0.0},
+    )
     return response["message"]["content"]
 
 
 def get_prompt(codeql_query: str, snippet: str, source_file: str, filter_str: str):
 
     return f"""# CONTEXT
-You will be given a CodeQL query, CPP snippet, the containing source file, and a filter.
+You will be given a CodeQL query, CPP snippet, the source file containing the snippet, and a filter.
 
 The CPP snippet was retrieved using the CodeQL query, a language used for static analysis. You don't have to understand the syntax of the language, but you should be able to understand the structure of the code.
+
+Each line in the CPP snippet and source file will be prepended with the line number "L<i>: " where i is the line number. The line number in the snippet will correspond to the line number in the source file.
 
 # INSTRUCTION
 Given the filter, determine if the source file matches the filter (1) or not (0).
 
-# OUTPUT
+Strictly follow the following output format when giving your answer.
+
+# OUTPUT FORMAT
 Return a JSON of the following format.
 {{
     "explanation": <str>,
@@ -75,6 +85,10 @@ def main(
         test_df = pd.read_csv(test_file)
         codeql_query = open(codeql_query_file, "r").read()
 
+        if output_file:
+            with open(output_file, "a") as f:
+                f.write(f"---{model.upper()}---\n")
+
         for index, row in test_df.iterrows():
             source_file_path = source_dir + "/" + row["file_path"]
 
@@ -99,17 +113,26 @@ def main(
             prompt = get_prompt(codeql_query, snippet, source_file, row["filter"])
             print(prompt)
 
-            with open(f"{row['file_path']}.prompt.txt", "w") as f:
-                f.write(prompt)
+            if output_file:
+                with open(output_file, "a") as f:
+                    f.write(
+                        f"File: {row['file_path']}\nLabel: {label}\nPrompt:\n{prompt}\n"
+                    )
 
-            # print("Getting response...")
-            # response = get_model_response(model, prompt)
+            print(f"\n\nGetting response for {row['file_path']} from {model}...")
 
-            # print("---RESPONSE---\n", response)
+            response = ""
+            stream = stream_model_response(model, prompt)
+            print("Received stream. Printing stream now...")
+            for chunk in stream:
+                message = chunk["message"]["content"]
 
+                print(message, end="", flush=True)
+                response += message
 
-def run_tests_on_model(model: str, tests_path: str):
-    pass
+            if output_file:
+                with open(output_file, "a") as f:
+                    f.write(f"Response:\n{response}\n\n")
 
 
 if __name__ == "__main__":
